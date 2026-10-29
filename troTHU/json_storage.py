@@ -50,7 +50,7 @@ def file_transaction(path: Path, *, timeout: float = 10.0):
                 def release():
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-            deadline = time.monotonic() + timeout
+            deadline = time.perf_counter() + timeout
             while True:
                 try:
                     acquire()
@@ -58,7 +58,7 @@ def file_transaction(path: Path, *, timeout: float = 10.0):
                 except OSError as exc:
                     if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
                         raise
-                    if time.monotonic() >= deadline:
+                    if time.perf_counter() >= deadline:
                         raise TimeoutError("Timed out waiting for the local state transaction.") from None
                     time.sleep(0.02)
             try:
@@ -77,13 +77,13 @@ def atomic_write_json(path: Path, data: Any) -> None:
             handle.write("\n")
         # Windows readers/virus scanners can briefly deny replacement even
         # when all application writers hold the transaction lock.
-        deadline = time.monotonic() + 1.0
+        deadline = time.perf_counter() + 1.0
         while True:
             try:
                 os.replace(temporary, path)
                 break
             except PermissionError as exc:
-                if os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32) or time.monotonic() >= deadline:
+                if os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32) or time.perf_counter() >= deadline:
                     raise
                 time.sleep(0.02)
     finally:

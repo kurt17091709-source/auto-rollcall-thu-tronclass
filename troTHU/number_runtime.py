@@ -163,7 +163,11 @@ async def number(main_session: ctx.aiohttp.ClientSession, rcid: int) -> str:
         direct_read_status = 'success' if found_code != 'NA' else 'submit_{}'.format(submit_result)
         return found_code != 'NA'
 
-    session_kwargs: ctx.Dict[str, ctx.Any] = {'connector': ctx.create_http_connector(), 'headers': headers}
+    session_kwargs: ctx.Dict[str, ctx.Any] = {
+        'connector': ctx.create_http_connector(),
+        'headers': headers,
+        'cookie_jar': ctx.aiohttp.CookieJar(unsafe=True),
+    }
     timeout = ctx.create_http_client_timeout()
     if timeout is not None:
         session_kwargs['timeout'] = timeout

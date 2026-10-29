@@ -626,20 +626,35 @@ def clone_session_cookies(source: ctx.aiohttp.ClientSession, target: ctx.aiohttp
             copied = SimpleCookie()
             copied[name] = cookie.value
             for attribute in ('domain', 'path', 'expires', 'max-age', 'secure', 'httponly', 'samesite'):
-                value = cookie[attribute]
+                try:
+                    value = cookie[attribute]
+                except (KeyError, IndexError, TypeError):
+                    value = getattr(cookie, attribute, '')
                 if value:
                     copied[name][attribute] = value
-            domain = str(cookie['domain'] or '').lstrip('.')
+            try:
+                raw_domain = cookie['domain']
+            except (KeyError, IndexError, TypeError):
+                raw_domain = getattr(cookie, 'domain', '')
+            domain = str(raw_domain or '').lstrip('.')
+            try:
+                is_secure = bool(cookie['secure'])
+            except (KeyError, IndexError, TypeError):
+                is_secure = bool(getattr(cookie, 'secure', False))
+            try:
+                raw_path = cookie['path']
+            except (KeyError, IndexError, TypeError):
+                raw_path = getattr(cookie, 'path', '/')
             if domain:
                 response_url = URL.build(
-                    scheme='https' if cookie['secure'] else 'http',
+                    scheme='https' if is_secure else 'http',
                     host=domain,
-                    path=str(cookie['path'] or '/'),
+                    path=str(raw_path or '/'),
                 )
                 target.cookie_jar.update_cookies(copied, response_url=response_url)
             else:
                 target.cookie_jar.update_cookies(copied)
-        except (CookieError, ValueError, TypeError):
+        except (CookieError, ValueError, TypeError, KeyError):
             continue
 
 

